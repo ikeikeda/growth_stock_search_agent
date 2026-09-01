@@ -1,0 +1,2 @@
+# growth_stock_search_agent
+成長株を探すエージェント
