@@ -1,0 +1,32 @@
+[
+  {
+    "instruction": "日本株の割安成長株を10銘柄選定。PER15倍未満、売上・営業利益YoY10%以上、未注目銘柄を優先。",
+    "expected_fields": ["name", "code", "forecast_per", "revenue_growth", "operating_profit_growth"],
+    "min_candidates": 3,
+    "min_alignment_score": 0.6
+  },
+  {
+    "instruction": "成長しているのに評価されていない日本株を発掘。低PER業種は同業比較。赤字・反動増は除外。",
+    "expected_fields": ["name", "code", "undervalued_reason", "unnoticed_reason"],
+    "min_candidates": 3,
+    "min_alignment_score": 0.6
+  },
+  {
+    "instruction": "直近決算と現在株価でPER再計算済みの割安成長株候補をJSONで出力。",
+    "expected_fields": ["name", "code", "current_price", "forecast_per"],
+    "min_candidates": 2,
+    "min_alignment_score": 0.5
+  },
+  {
+    "instruction": "テーマ過熱でない、好決算なのにPER低位の日本株を優先選定。",
+    "expected_fields": ["name", "code", "unnoticed_reason", "growth_drivers"],
+    "min_candidates": 2,
+    "min_alignment_score": 0.5
+  },
+  {
+    "instruction": "時価総額不問で、成長性・割安度・継続性・未注目度を総合評価しTop10をJSON化。",
+    "expected_fields": ["name", "code", "risks", "growth_drivers"],
+    "min_candidates": 3,
+    "min_alignment_score": 0.6
+  }
+]
