@@ -43,6 +43,10 @@ ollama pull gemma4:12b
 # 前提条件チェック
 uv run check
 
+# Spreadsheet 書き込みだけを試す（リサーチなし・サンプルデータ）
+uv run test-sheets
+uv run test-sheets --preview   # 書き込まず内容確認のみ
+
 # リサーチ実行（Spreadsheet 追記）
 uv run research
 
