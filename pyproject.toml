@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 research = "growth_stock_search_agent.main:run_research"
+test-sheets = "growth_stock_search_agent.main:run_test_sheets"
 optimize-prompt = "growth_stock_search_agent.dspy_opt.optimize:main"
 check = "growth_stock_search_agent.main:run_check"
 

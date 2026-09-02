@@ -15,18 +15,29 @@ JAPAN_FINANCE_DOMAINS = [
 
 
 def build_llm() -> LLM:
+    """Build an Ollama LLM via LiteLLM with settings tuned for gemma4 tool calling."""
     settings = get_settings()
+    additional_params: dict[str, object] = {
+        "num_ctx": settings.ollama_num_ctx,
+    }
+    if settings.ollama_disable_thinking:
+        additional_params["think"] = False
+
     return LLM(
         model=f"ollama/{settings.ollama_model}",
         base_url=settings.ollama_base_url,
+        provider="litellm",
         temperature=0.3,
+        timeout=settings.ollama_timeout,
+        max_tokens=4096,
+        additional_params=additional_params,
     )
 
 
 def build_search_tool() -> TavilySearchTool:
     return TavilySearchTool(
         search_depth="advanced",
-        max_results=10,
+        max_results=8,
         include_answer=True,
         include_domains=JAPAN_FINANCE_DOMAINS,
     )
@@ -53,7 +64,8 @@ def create_researcher_agent(llm: LLM, search_tool: TavilySearchTool) -> Agent:
         tools=[search_tool],
         llm=llm,
         verbose=True,
-        max_iter=15,
+        max_iter=10,
+        respect_context_window=True,
     )
 
 
@@ -71,7 +83,8 @@ def create_analyst_agent(llm: LLM, extractor_tool: TavilyExtractorTool) -> Agent
         tools=[extractor_tool],
         llm=llm,
         verbose=True,
-        max_iter=15,
+        max_iter=10,
+        respect_context_window=True,
     )
 
 
@@ -88,7 +101,8 @@ def create_ranker_agent(llm: LLM) -> Agent:
         ),
         llm=llm,
         verbose=True,
-        max_iter=10,
+        max_iter=8,
+        respect_context_window=True,
     )
 
 
@@ -106,5 +120,6 @@ def create_evaluator_agent(llm: LLM, search_tool: TavilySearchTool) -> Agent:
         tools=[search_tool],
         llm=llm,
         verbose=True,
-        max_iter=15,
+        max_iter=10,
+        respect_context_window=True,
     )

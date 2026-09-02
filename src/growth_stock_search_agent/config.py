@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:12b"
+    ollama_timeout: int = 600
+    ollama_num_ctx: int = 32768
+    ollama_disable_thinking: bool = True
     tavily_api_key: str = ""
     google_sheets_id: str = ""
     google_service_account_json: str = "credentials/service_account.json"
@@ -32,11 +35,13 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def check_ollama(base_url: str) -> tuple[bool, str]:
+def check_ollama(base_url: str, model: str = "") -> tuple[bool, str]:
     try:
         response = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=5.0)
         response.raise_for_status()
         models = [m.get("name", "") for m in response.json().get("models", [])]
+        if model and model not in models:
+            return False, f"Model '{model}' not found. Available: {', '.join(models)}"
         return True, f"Ollama OK ({len(models)} models available)"
     except Exception as exc:
         return False, f"Ollama unreachable: {exc}"
@@ -60,7 +65,7 @@ def check_google_sheets(sheets_id: str, credentials_path: str) -> tuple[bool, st
 def run_health_checks(settings: Settings | None = None) -> list[tuple[str, bool, str]]:
     settings = settings or get_settings()
     checks = [
-        ("Ollama", *check_ollama(settings.ollama_base_url)),
+        ("Ollama", *check_ollama(settings.ollama_base_url, settings.ollama_model)),
         ("Tavily", *check_tavily(settings.tavily_api_key)),
         (
             "Google Sheets",
