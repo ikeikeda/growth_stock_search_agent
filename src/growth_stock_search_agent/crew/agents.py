@@ -120,6 +120,24 @@ def create_evaluator_agent(llm: LLM, search_tool: TavilySearchTool) -> Agent:
         tools=[search_tool],
         llm=llm,
         verbose=True,
-        max_iter=10,
+        max_iter=5,
+        respect_context_window=True,
+    )
+
+
+def create_formatter_agent(llm: LLM) -> Agent:
+    return Agent(
+        role="JSON整形者",
+        goal=(
+            "RankerとEvaluatorの結果を指定スキーマの有効なJSON（ResearchReport）へ変換する。"
+            "Markdownや解説文は一切出力しない。"
+        ),
+        backstory=(
+            "構造化データ変換の専門家。"
+            "与えられた評価結果を欠落なくJSONへ写し、説明文は付けない。"
+        ),
+        llm=llm,
+        verbose=True,
+        max_iter=3,
         respect_context_window=True,
     )

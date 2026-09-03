@@ -76,3 +76,43 @@ def extract_json_payload(text: str) -> dict:
 def parse_research_report(raw_output: str) -> ResearchReport:
     payload = extract_json_payload(raw_output)
     return ResearchReport.model_validate(payload)
+
+
+def parse_ranker_output(raw_output: str) -> RankerOutput:
+    payload = extract_json_payload(raw_output)
+    if "evaluation" in payload:
+        raise ValueError("Payload looks like ResearchReport, not RankerOutput")
+    return RankerOutput.model_validate(payload)
+
+
+UNAUDITED_FALLBACK_NOTE = "Evaluator が JSON を返さなかったため未監査"
+
+
+def report_from_unaudited_ranker(ranker: RankerOutput) -> ResearchReport:
+    """Wrap Ranker JSON in a ResearchReport with quality 0 so Sheets writes stay skipped."""
+    evaluations = [
+        StockEvaluation(
+            code=candidate.code,
+            passes_criteria=False,
+            growth_score=0.0,
+            valuation_score=0.0,
+            unnoticed_score=0.0,
+            exclusion_check_passed=False,
+            data_freshness_ok=False,
+            issues=[UNAUDITED_FALLBACK_NOTE],
+            overall_score=0.0,
+        )
+        for candidate in ranker.candidates
+    ]
+    return ResearchReport(
+        run_date=ranker.run_date,
+        candidates=ranker.candidates,
+        top3_comparison=ranker.top3_comparison,
+        evaluation=EvaluationReport(
+            stock_evaluations=evaluations,
+            report_quality_score=0.0,
+            purpose_alignment_summary=UNAUDITED_FALLBACK_NOTE,
+            rejected_codes=[candidate.code for candidate in ranker.candidates],
+            recommendations=UNAUDITED_FALLBACK_NOTE,
+        ),
+    )

@@ -5,6 +5,7 @@ from crewai import Task
 from growth_stock_search_agent.crew.agents import (
     create_analyst_agent,
     create_evaluator_agent,
+    create_formatter_agent,
     create_ranker_agent,
     create_researcher_agent,
 )
@@ -120,6 +121,11 @@ def create_evaluation_task(evaluator, ranking_task: Task) -> Task:
             f"{rubric}\n\n"
             "RankerのJSON出力を受け取り、各銘柄が本来の目的に合致しているか"
             "ルーブリックに沿って独立して評価してください。\n"
+            "【厳守】\n"
+            "・Rankerの全候補を評価すること。最後に検索した1銘柄の分析で終えてはいけない\n"
+            "・Web検索は数値の再確認にのみ使う。"
+            "検索結果の解説や個別銘柄の投資レポートを最終回答にしてはいけない\n"
+            "・Markdownの見出し・箇条書きの結論文は禁止。最終出力はJSONのみ\n"
             "・passes_criteria=false の銘柄は candidates から除外\n"
             "・疑義がある数値はWeb検索で再確認\n"
             "・report_quality_score は合格銘柄の割合とスコア平均から算出\n"
@@ -129,6 +135,25 @@ def create_evaluation_task(evaluator, ranking_task: Task) -> Task:
         expected_output="有効なJSON形式のResearchReport（evaluation付き、合格銘柄のみ）",
         agent=evaluator,
         context=[ranking_task],
+    )
+
+
+def create_format_task(formatter, ranking_task: Task, evaluation_task: Task) -> Task:
+    return Task(
+        description=(
+            "RankerのJSONとEvaluatorの評価内容を、以下のスキーマに従った"
+            "有効なJSON（ResearchReport）へ変換してください。\n"
+            "【厳守】\n"
+            "・出力はJSONオブジェクトのみ。Markdown、見出し、解説、コードフェンス前後の文章は禁止\n"
+            "・Rankerの全候補を反映すること。最後に言及された1銘柄だけで終わってはいけない\n"
+            "・passes_criteria=false の銘柄は candidates から除外し、rejected_codes に入れる\n"
+            "・EvaluatorがMarkdownや単一銘柄メモしか出していない場合でも、"
+            "Ranker JSONを正として全候補の evaluation を埋めること\n"
+            f"{EVALUATOR_JSON_SCHEMA}"
+        ),
+        expected_output="有効なJSON形式のResearchReport（evaluation付き、合格銘柄のみ）",
+        agent=formatter,
+        context=[ranking_task, evaluation_task],
     )
 
 
@@ -147,10 +172,12 @@ def build_tasks(research_prompt: str):
     analyst = create_analyst_agent(llm, extractor_tool)
     ranker = create_ranker_agent(llm)
     evaluator = create_evaluator_agent(llm, search_tool)
+    formatter = create_formatter_agent(llm)
 
     research_task = create_research_task(researcher, research_prompt)
     analysis_task = create_analysis_task(analyst, research_task)
     ranking_task = create_ranking_task(ranker, analysis_task)
     evaluation_task = create_evaluation_task(evaluator, ranking_task)
+    format_task = create_format_task(formatter, ranking_task, evaluation_task)
 
-    return [research_task, analysis_task, ranking_task, evaluation_task]
+    return [research_task, analysis_task, ranking_task, evaluation_task, format_task]
