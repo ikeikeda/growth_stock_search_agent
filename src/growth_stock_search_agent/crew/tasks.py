@@ -18,8 +18,9 @@ RANKER_JSON_SCHEMA = """
   "candidates": [
     {
       "rank": 1,
-      "name": "銘柄名",
+      "name": "正式社名（コード不可。例: ラクスル）",
       "code": "4桁コード",
+      "business_description": "事業内容（何の会社か1〜2文）",
       "current_price": "現在株価",
       "market_cap": "時価総額",
       "forecast_per": "予想PER",
@@ -69,11 +70,12 @@ def create_research_task(researcher, research_prompt: str) -> Task:
         description=(
             f"{research_prompt}\n\n"
             "【あなたの担当】 上記目的に沿い、Web検索で日本株の成長株候補を15〜20銘柄程度収集してください。"
-            "各候補について銘柄名・コード・情報源URL・直近決算概要を整理してください。"
+            "各候補について正式社名（コードを社名代わりにしない）・コード・事業内容・"
+            "情報源URL・直近決算概要を整理してください。"
             "必ず最新情報を検索し、一次情報を優先してください。"
         ),
         expected_output=(
-            "候補銘柄リスト（銘柄名、コード、情報源URL、"
+            "候補銘柄リスト（正式社名、コード、事業内容、情報源URL、"
             "直近決算の売上・営業利益成長率の概要、PER概算）"
         ),
         agent=researcher,
@@ -88,10 +90,11 @@ def create_analysis_task(analyst, research_task: Task) -> Task:
             "・売上・営業利益YoY10%以上（20%以上優先）\n"
             "・赤字・希薄化・反動増は除外\n"
             "・直近決算と現在株価でPERを再計算\n"
-            "条件を満たす銘柄を10〜15銘柄に絞り込み、各銘柄の詳細データを整理してください。"
+            "条件を満たす銘柄を10〜15銘柄に絞り込み、各銘柄の詳細データを整理してください。\n"
+            "社名がコードのみの場合は検索して正式社名と事業内容を補完してください。"
         ),
         expected_output=(
-            "絞り込み後の候補銘柄リスト（銘柄名、コード、現在株価、時価総額、"
+            "絞り込み後の候補銘柄リスト（正式社名、コード、事業内容、現在株価、時価総額、"
             "予想PER、売上高成長率、営業利益成長率、割安理由、未注目理由、"
             "成長材料、リスク、情報源）"
         ),
@@ -105,6 +108,8 @@ def create_ranking_task(ranker, analysis_task: Task) -> Task:
         description=(
             "Analystの分析結果をもとに、候補を10銘柄程度に順位付けし、"
             "特に有望な3銘柄を選定してください。\n"
+            "name は正式社名のみ（4桁コードを銘柄名に入れない）。"
+            "business_description に事業内容を1〜2文で必ず入れること。\n"
             "出力は必ず以下のJSONスキーマに従った有効なJSONのみとしてください。\n"
             f"{RANKER_JSON_SCHEMA}"
         ),
@@ -147,6 +152,8 @@ def create_format_task(formatter, ranking_task: Task, evaluation_task: Task) -> 
             "・出力はJSONオブジェクトのみ。Markdown、見出し、解説、コードフェンス前後の文章は禁止\n"
             "・Rankerの全候補を反映すること。最後に言及された1銘柄だけで終わってはいけない\n"
             "・passes_criteria=false の銘柄は candidates から除外し、rejected_codes に入れる\n"
+            "・name が空・コードと同じ・数字のみなら、文脈から正式社名を入れて補完する\n"
+            "・business_description が空なら、文脈から事業内容を1〜2文で補完する\n"
             "・EvaluatorがMarkdownや単一銘柄メモしか出していない場合でも、"
             "Ranker JSONを正として全候補の evaluation を埋めること\n"
             f"{EVALUATOR_JSON_SCHEMA}"

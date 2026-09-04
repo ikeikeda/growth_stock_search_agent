@@ -7,10 +7,30 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
+MISSING_NAME_PLACEHOLDER = "（社名未取得）"
+_TICKER_NAME_RE = re.compile(r"^\d{3,5}(?:\.T)?$", re.IGNORECASE)
+_MISSING_NAME_LABELS = {"", "-", "不明", "n/a", "na", "none", MISSING_NAME_PLACEHOLDER}
+
+
+def is_missing_company_name(name: str, code: str) -> bool:
+    """True when name is empty, a placeholder, or just the ticker code."""
+    normalized_name = (name or "").strip()
+    normalized_code = (code or "").strip()
+    code_digits = re.sub(r"\.T$", "", normalized_code, flags=re.IGNORECASE)
+    if normalized_name.lower() in _MISSING_NAME_LABELS:
+        return True
+    if normalized_code and normalized_name == normalized_code:
+        return True
+    if code_digits and normalized_name == code_digits:
+        return True
+    return bool(_TICKER_NAME_RE.fullmatch(normalized_name))
+
+
 class StockCandidate(BaseModel):
     rank: int
     name: str
     code: str
+    business_description: str = ""
     current_price: str
     market_cap: str
     forecast_per: str

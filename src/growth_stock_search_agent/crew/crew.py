@@ -14,6 +14,7 @@ from growth_stock_search_agent.models import (
     parse_research_report,
     report_from_unaudited_ranker,
 )
+from growth_stock_search_agent.output.enrichment import enrich_report
 
 
 def _task_raw(task_output: object) -> str:
@@ -77,7 +78,7 @@ def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -
 
     raw_output = str(result.raw if hasattr(result, "raw") else result)
     try:
-        return parse_research_report(raw_output)
+        return enrich_report(parse_research_report(raw_output))
     except Exception as parse_error:
         log_path = _save_crew_raw(result, extra=str(parse_error))
         if retry_on_parse_error:
@@ -87,7 +88,7 @@ def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -
                     "警告: 最終出力を ResearchReport JSON として解析できませんでした。"
                     f" Ranker 結果から未監査レポートを組み立てます。 raw={log_path}"
                 )
-                return report_from_unaudited_ranker(ranker)
+                return enrich_report(report_from_unaudited_ranker(ranker))
         raise ValueError(
             f"Failed to parse crew output as ResearchReport: {parse_error}. "
             f"raw saved to {log_path}"

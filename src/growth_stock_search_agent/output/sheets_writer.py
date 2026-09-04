@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 
 from growth_stock_search_agent.config import PROJECT_ROOT, get_settings
 from growth_stock_search_agent.models import ResearchReport, StockEvaluation
+from growth_stock_search_agent.output.enrichment import enrich_report
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -18,6 +19,7 @@ HEADERS = [
     "順位",
     "銘柄名",
     "銘柄コード",
+    "事業内容",
     "現在株価",
     "時価総額",
     "予想PER",
@@ -56,16 +58,40 @@ def _get_worksheet():
         return worksheet
 
 
+def missing_header_inserts(current: list[str], desired: list[str]) -> list[tuple[int, str]]:
+    """Return sequential 1-based (column, header) inserts for headers missing from current."""
+    working = list(current)
+    inserts: list[tuple[int, str]] = []
+    for index, header in enumerate(desired):
+        if header in working:
+            continue
+        inserts.append((index + 1, header))
+        working.insert(index, header)
+    return inserts
+
+
 def _ensure_headers(worksheet) -> None:
     first_row = worksheet.row_values(1)
     if not first_row:
         worksheet.append_row(HEADERS)
+        return
+
+    inserts = missing_header_inserts(first_row, HEADERS)
+    if not inserts:
+        return
+
+    needed_cols = max(len(HEADERS), len(first_row) + len(inserts))
+    if worksheet.col_count < needed_cols:
+        worksheet.resize(rows=max(worksheet.row_count, 1), cols=needed_cols)
+
+    for column, header in inserts:
+        worksheet.insert_cols([[header]], col=column)
 
 
 def get_existing_codes() -> set[str]:
     worksheet = _get_worksheet()
     _ensure_headers(worksheet)
-    codes = worksheet.col_values(4)
+    codes = worksheet.col_values(HEADERS.index("銘柄コード") + 1)
     if len(codes) <= 1:
         return set()
     return {code.strip() for code in codes[1:] if code.strip()}
@@ -80,6 +106,7 @@ def append_new_candidates(report: ResearchReport) -> list[str]:
     worksheet = _get_worksheet()
     _ensure_headers(worksheet)
     existing_codes = get_existing_codes()
+    report = enrich_report(report)
     eval_by_code = _evaluation_map(report)
 
     appended: list[str] = []
@@ -103,6 +130,7 @@ def append_new_candidates(report: ResearchReport) -> list[str]:
                 str(candidate.rank),
                 candidate.name,
                 code,
+                candidate.business_description,
                 candidate.current_price,
                 candidate.market_cap,
                 candidate.forecast_per,
