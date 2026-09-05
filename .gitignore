@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+credentials/*
+evaluation_*
+src/growth_stock_search_agent/prompts/optimized_prompt.json
