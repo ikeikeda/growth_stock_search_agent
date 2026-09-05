@@ -1,0 +1,26 @@
+[project]
+name = "growth-stock-search-agent"
+version = "0.1.0"
+description = "日本株の割安成長株をリサーチするCrewAIエージェント"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "crewai[litellm,tools]>=1.15.18",
+    "dspy-ai>=3.3.1",
+    "google-auth>=2.57.0",
+    "gspread>=6.2.1",
+    "httpx>=0.28.0",
+    "pydantic-settings>=2.15.0",
+    "python-dotenv>=1.2.3",
+    "tavily-python>=0.8.0",
+]
+
+[project.scripts]
+research = "growth_stock_search_agent.main:run_research"
+test-sheets = "growth_stock_search_agent.main:run_test_sheets"
+optimize-prompt = "growth_stock_search_agent.dspy_opt.optimize:main"
+check = "growth_stock_search_agent.main:run_check"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"

@@ -219,4 +219,10 @@ __marimo__/
 
 credentials/*
 evaluation_*
+
+# Project-specific
+credentials/
+!credentials/.gitkeep
+logs/
+
 src/growth_stock_search_agent/prompts/optimized_prompt.json
