@@ -21,6 +21,8 @@ from growth_stock_search_agent.models import (
     ResearchReport,
     StockCandidate,
     StockEvaluation,
+    format_run_context,
+    now_run_date,
 )
 from growth_stock_search_agent.output.sheets_writer import append_new_candidates
 from growth_stock_search_agent.prompts.loader import load_research_prompt
@@ -39,13 +41,14 @@ def _save_evaluation_log(report) -> Path:
 
 def _build_sample_report() -> ResearchReport:
     """Sheets書き込みテスト用のサンプルレポートを生成する。"""
-    run_date = datetime.now(timezone.utc).isoformat()
+    run_date = now_run_date()
     stamp = datetime.now(timezone.utc).strftime("%H%M%S")
     candidates = [
         StockCandidate(
             rank=1,
             name="テスト成長A",
             code=f"T{stamp}1",
+            business_description="産業用センサーの製造販売",
             current_price="1,250",
             market_cap="350億円",
             forecast_per="11.2",
@@ -61,6 +64,7 @@ def _build_sample_report() -> ResearchReport:
             rank=2,
             name="テスト成長B",
             code=f"T{stamp}2",
+            business_description="中小企業向けSaaSの企画・運営",
             current_price="890",
             market_cap="120億円",
             forecast_per="9.8",
@@ -76,6 +80,7 @@ def _build_sample_report() -> ResearchReport:
             rank=3,
             name="テスト除外C",
             code=f"T{stamp}3",
+            business_description="不動産仲介",
             current_price="2,100",
             market_cap="800億円",
             forecast_per="14.5",
@@ -186,7 +191,7 @@ def run_test_sheets(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        appended = append_new_candidates(report)
+        appended = append_new_candidates(report, verify_identity=False)
     except Exception as exc:
         print(f"Spreadsheet 書き込みに失敗しました: {exc}")
         return 1
@@ -219,12 +224,17 @@ def run_research(argv: list[str] | None = None) -> int:
     if settings.tavily_api_key:
         os.environ["TAVILY_API_KEY"] = settings.tavily_api_key
 
-    prompt = load_research_prompt(use_base=args.use_base)
+    prompt = format_run_context(load_research_prompt(use_base=args.use_base))
 
     print("リサーチを開始します...")
     report = run_research_crew(prompt)
     log_path = _save_evaluation_log(report)
     print(f"評価ログを保存しました: {log_path}")
+    if report.evaluation.rejected_codes:
+        print("銘柄身元チェックで除外:")
+        for evaluation in report.evaluation.stock_evaluations:
+            if not evaluation.passes_criteria and evaluation.issues:
+                print(f"  {evaluation.code}: {'; '.join(evaluation.issues)}")
 
     output = json.dumps(report.model_dump(), ensure_ascii=False, indent=2)
     if args.dry_run:
@@ -247,7 +257,7 @@ def run_research(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    appended = append_new_candidates(report)
+    appended = append_new_candidates(report, verify_identity=False)
     if appended:
         print(f"Spreadsheet に {len(appended)} 件の新規銘柄を追記しました: {', '.join(appended)}")
     else:

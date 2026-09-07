@@ -13,12 +13,13 @@ from growth_stock_search_agent.crew.evaluation_rubric import format_rubric_for_p
 
 RANKER_JSON_SCHEMA = """
 {
-  "run_date": "ISO8601 datetime",
+  "run_date": "実行時に上書きされる。プロンプトの【実行日時】を使う",
   "candidates": [
     {
       "rank": 1,
-      "name": "銘柄名",
-      "code": "4桁コード",
+      "name": "正式社名（コード不可。株探/Yahooで確認した実在企業のみ。例: ラクスル）",
+      "code": "4桁の実在コード（重複禁止）",
+      "business_description": "事業内容（何の会社か1〜2文）",
       "current_price": "現在株価",
       "market_cap": "時価総額",
       "forecast_per": "予想PER",
@@ -37,7 +38,7 @@ RANKER_JSON_SCHEMA = """
 
 EVALUATOR_JSON_SCHEMA = """
 {
-  "run_date": "ISO8601 datetime",
+  "run_date": "実行時に上書きされる。プロンプトの【実行日時】を使う",
   "candidates": [ /* passes_criteria=true の銘柄のみ。Rankerと同スキーマ */ ],
   "top3_comparison": "Top3比較（合格銘柄ベース）",
   "evaluation": {
@@ -68,11 +69,14 @@ def create_research_task(researcher, research_prompt: str) -> Task:
         description=(
             f"{research_prompt}\n\n"
             "【あなたの担当】 上記目的に沿い、Web検索で日本株の成長株候補を15〜20銘柄程度収集してください。"
-            "各候補について銘柄名・コード・情報源URL・直近決算概要を整理してください。"
+            "各候補について正式社名（コードを社名代わりにしない）・4桁コード・事業内容・"
+            "情報源URL・直近決算概要を整理してください。"
+            "社名とコードは株探またはYahooファイナンスで同一企業と確認できた組だけを使う。"
+            "創作社名・コードの付け替え・同一コードの重複は禁止。"
             "必ず最新情報を検索し、一次情報を優先してください。"
         ),
         expected_output=(
-            "候補銘柄リスト（銘柄名、コード、情報源URL、"
+            "候補銘柄リスト（正式社名、コード、事業内容、情報源URL、"
             "直近決算の売上・営業利益成長率の概要、PER概算）"
         ),
         agent=researcher,
@@ -87,10 +91,11 @@ def create_analysis_task(analyst, research_task: Task) -> Task:
             "・売上・営業利益YoY10%以上（20%以上優先）\n"
             "・赤字・希薄化・反動増は除外\n"
             "・直近決算と現在株価でPERを再計算\n"
-            "条件を満たす銘柄を10〜15銘柄に絞り込み、各銘柄の詳細データを整理してください。"
+            "条件を満たす銘柄を10〜15銘柄に絞り込み、各銘柄の詳細データを整理してください。\n"
+            "社名とコードが一致しない候補、上場確認できないコードは除外してください。"
         ),
         expected_output=(
-            "絞り込み後の候補銘柄リスト（銘柄名、コード、現在株価、時価総額、"
+            "絞り込み後の候補銘柄リスト（正式社名、コード、事業内容、現在株価、時価総額、"
             "予想PER、売上高成長率、営業利益成長率、割安理由、未注目理由、"
             "成長材料、リスク、情報源）"
         ),
@@ -104,6 +109,9 @@ def create_ranking_task(ranker, analysis_task: Task) -> Task:
         description=(
             "Analystの分析結果をもとに、候補を10銘柄程度に順位付けし、"
             "特に有望な3銘柄を選定してください。\n"
+            "name は株探/Yahooで確認した正式社名のみ（4桁コードを銘柄名に入れない）。"
+            "code は実在する4桁コードで、同一コードを複数行に使わない。"
+            "business_description に事業内容を1〜2文で必ず入れること。\n"
             "出力は必ず以下のJSONスキーマに従った有効なJSONのみとしてください。\n"
             f"{RANKER_JSON_SCHEMA}"
         ),
@@ -121,6 +129,7 @@ def create_evaluation_task(evaluator, ranking_task: Task) -> Task:
             "RankerのJSON出力を受け取り、各銘柄が本来の目的に合致しているか"
             "ルーブリックに沿って独立して評価してください。\n"
             "・passes_criteria=false の銘柄は candidates から除外\n"
+            "・社名とコードが実在上場企業として一致しない場合は不合格\n"
             "・疑義がある数値はWeb検索で再確認\n"
             "・report_quality_score は合格銘柄の割合とスコア平均から算出\n"
             "出力は必ず以下のJSONスキーマに従った有効なJSONのみとしてください。\n"

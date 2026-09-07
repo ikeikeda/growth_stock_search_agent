@@ -5,6 +5,7 @@ from crewai import Crew, Process
 from growth_stock_search_agent.config import get_settings
 from growth_stock_search_agent.crew.tasks import build_tasks
 from growth_stock_search_agent.models import ResearchReport, parse_research_report
+from growth_stock_search_agent.output.enrichment import prepare_report
 
 
 def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -> ResearchReport:
@@ -24,7 +25,7 @@ def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -
         try:
             result = crew.kickoff()
             raw_output = str(result.raw if hasattr(result, "raw") else result)
-            return parse_research_report(raw_output)
+            return prepare_report(parse_research_report(raw_output))
         except ValueError as exc:
             last_error = exc
             if "Invalid response from LLM call" in str(exc):
