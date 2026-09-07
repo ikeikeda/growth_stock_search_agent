@@ -54,7 +54,8 @@ def create_researcher_agent(llm: LLM, search_tool: TavilySearchTool) -> Agent:
     return Agent(
         role="日本株市場リサーチャー",
         goal=(
-            "Web検索で日本株の成長株候補を広く収集し、"
+            "Web検索で実在する日本の上場企業だけを収集し、"
+            "正式社名と4桁コードを株探またはYahooファイナンスで一致確認したうえで、"
             "決算短信・IR・有価証券報告書など一次情報のURLを優先して整理する"
         ),
         backstory=(
@@ -93,7 +94,7 @@ def create_ranker_agent(llm: LLM) -> Agent:
         role="投資レポート作成者",
         goal=(
             "候補を10銘柄程度に順位付けし、"
-            "特に有望な3銘柄を比較したJSONレポートを作成する"
+            "正式社名・実在コード・事業内容付きで特に有望な3銘柄を比較したJSONレポートを作成する"
         ),
         backstory=(
             "機関投資家向けレポートを執筆するストラテジスト。"
@@ -116,6 +117,7 @@ def create_evaluator_agent(llm: LLM, search_tool: TavilySearchTool) -> Agent:
         backstory=(
             "独立した監査役として、リサーチ結果の品質と目的適合性を"
             "厳格かつ客観的に評価する専門家。Rankerの結論を鵜呑みにしない。"
+            "創作銘柄や社名とコードの不一致を見逃さない。"
         ),
         tools=[search_tool],
         llm=llm,

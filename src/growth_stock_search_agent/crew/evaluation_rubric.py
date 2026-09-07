@@ -26,6 +26,11 @@ RUBRIC_CATEGORIES = [
         "item": "決算・株価",
         "criteria": "直近決算と現在株価に基づくPER再計算がされているか",
     },
+    {
+        "category": "銘柄身元",
+        "item": "社名とコード",
+        "criteria": "実在する上場企業で、銘柄名と4桁コードが一致している。創作社名・コード不一致・重複は不合格",
+    },
 ]
 
 PURPOSE_STATEMENT = (
