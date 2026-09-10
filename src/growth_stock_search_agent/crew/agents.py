@@ -15,17 +15,15 @@ JAPAN_FINANCE_DOMAINS = [
 
 
 def build_llm() -> LLM:
-    """Build an Ollama LLM via LiteLLM with settings tuned for gemma4 tool calling.
+    """Build an Ollama chat LLM via LiteLLM with settings tuned for gemma4 tool calling.
 
-    gemma4 uses thinking tokens. If the generation budget is exhausted during
-    thinking, ``message.content`` can be empty while ``thinking`` is filled;
-    CrewAI/LiteLLM then aborts with ``Invalid response from LLM call``.
-    Keep thinking enabled for gemma4 and give enough ``max_tokens`` /
-    ``num_predict`` for both thinking and the visible answer or tool calls.
-    """Build an Ollama chat LLM via LiteLLM.
-
-    ``ollama_chat/`` uses ``/api/chat``. Gemma 4 needs thinking left on;
-    ``think=False`` discards thought tokens and often returns empty content.
+    ``ollama_chat/`` uses ``/api/chat``. gemma4 uses thinking tokens: if the
+    generation budget is exhausted during thinking, ``message.content`` can be
+    empty while ``thinking`` is filled; CrewAI/LiteLLM then aborts with
+    ``Invalid response from LLM call``. Keep thinking enabled for gemma4
+    (``think=False`` discards thought tokens and often returns empty content)
+    and give enough ``max_tokens`` / ``num_predict`` for both thinking and the
+    visible answer or tool calls.
     """
     settings = get_settings()
     additional_params: dict[str, object] = {
