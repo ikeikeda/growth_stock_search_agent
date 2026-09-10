@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     ollama_model: str = "gemma4:12b"
     ollama_timeout: int = 600
     ollama_num_ctx: int = 32768
+    # gemma4 thinking + visible answer/tool calls need a large generation budget.
+    # Too-low max_tokens can exhaust the budget during thinking and yield empty content.
+    ollama_max_tokens: int = 16384
+    # gemma4: keep thinking enabled (false). Setting true often empties message.content.
     ollama_disable_thinking: bool = False
     tavily_api_key: str = ""
     google_sheets_id: str = ""

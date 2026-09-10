@@ -88,6 +88,8 @@ src/growth_stock_search_agent/
 |------|------|
 | `OLLAMA_BASE_URL` | Ollama API URL（デフォルト: `http://localhost:11434`） |
 | `OLLAMA_MODEL` | モデル名（デフォルト: `gemma4:12b`） |
+| `OLLAMA_MAX_TOKENS` | 生成予算（デフォルト: `16384`）。thinking モデルは足りないと空応答になる |
+| `OLLAMA_DISABLE_THINKING` | thinking 無効化（デフォルト: `false`）。gemma4 では `false` 推奨 |
 | `TAVILY_API_KEY` | Tavily API キー |
 | `GOOGLE_SHEETS_ID` | スプレッドシート ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | サービスアカウント JSON パス |
