@@ -31,7 +31,8 @@ def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -
             if "Invalid response from LLM call" in str(exc):
                 raise ValueError(
                     "Ollama から空の応答が返されました。"
-                    " Ollama が起動しているか、モデル名が正しいか確認してください。"
+                    " gemma4 では thinking を無効にすると本文が捨てられます。"
+                    " OLLAMA_DISABLE_THINKING=false を確認してください。"
                     f" (model={get_settings().ollama_model}, attempt={attempt + 1}/{attempts})"
                 ) from exc
         except Exception as exc:
@@ -39,7 +40,7 @@ def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -
             if "Invalid response from LLM call" in str(exc):
                 raise ValueError(
                     "Ollama から空の応答が返されました。"
-                    " gemma4 等の thinking モデルでは think=False が必要です。"
+                    " gemma4 では thinking を無効にすると本文が捨てられます。"
                     f" (attempt={attempt + 1}/{attempts})"
                 ) from exc
 

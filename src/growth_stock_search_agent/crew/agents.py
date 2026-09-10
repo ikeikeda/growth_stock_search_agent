@@ -15,7 +15,11 @@ JAPAN_FINANCE_DOMAINS = [
 
 
 def build_llm() -> LLM:
-    """Build an Ollama LLM via LiteLLM with settings tuned for gemma4 tool calling."""
+    """Build an Ollama chat LLM via LiteLLM.
+
+    ``ollama_chat/`` uses ``/api/chat``. Gemma 4 needs thinking left on;
+    ``think=False`` discards thought tokens and often returns empty content.
+    """
     settings = get_settings()
     additional_params: dict[str, object] = {
         "num_ctx": settings.ollama_num_ctx,
@@ -23,8 +27,8 @@ def build_llm() -> LLM:
     if settings.ollama_disable_thinking:
         additional_params["think"] = False
 
-    return LLM(
-        model=f"ollama/{settings.ollama_model}",
+    llm = LLM(
+        model=f"ollama_chat/{settings.ollama_model}",
         base_url=settings.ollama_base_url,
         provider="litellm",
         temperature=0.3,
@@ -32,6 +36,10 @@ def build_llm() -> LLM:
         max_tokens=4096,
         additional_params=additional_params,
     )
+    context_size = int(settings.ollama_num_ctx * 0.85)
+    llm.supports_function_calling = lambda: True  # type: ignore[method-assign]
+    llm.get_context_window_size = lambda: context_size  # type: ignore[method-assign]
+    return llm
 
 
 def build_search_tool() -> TavilySearchTool:
