@@ -56,5 +56,22 @@ def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -
                 f" max_tokens={settings.ollama_max_tokens},"
                 f" attempt={attempt + 1}/{attempts})"
             ) from exc
+        except ValueError as exc:
+            last_error = exc
+            if "Invalid response from LLM call" in str(exc):
+                raise ValueError(
+                    "Ollama から空の応答が返されました。"
+                    " gemma4 では thinking を無効にすると本文が捨てられます。"
+                    " OLLAMA_DISABLE_THINKING=false を確認してください。"
+                    f" (model={get_settings().ollama_model}, attempt={attempt + 1}/{attempts})"
+                ) from exc
+        except Exception as exc:
+            last_error = exc
+            if "Invalid response from LLM call" in str(exc):
+                raise ValueError(
+                    "Ollama から空の応答が返されました。"
+                    " gemma4 では thinking を無効にすると本文が捨てられます。"
+                    f" (attempt={attempt + 1}/{attempts})"
+                ) from exc
 
     raise ValueError(f"Failed to parse crew output as ResearchReport: {last_error}")
