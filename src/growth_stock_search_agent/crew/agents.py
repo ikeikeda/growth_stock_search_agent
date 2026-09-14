@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from crewai import Agent, LLM
 from crewai_tools import TavilyExtractorTool, TavilySearchTool
+from pydantic import BaseModel, Field
 
 from growth_stock_search_agent.config import get_settings
+from growth_stock_search_agent.crew.ollama_llm import OllamaCrewLLM, generation_token_budget
 
 JAPAN_FINANCE_DOMAINS = [
     "finance.yahoo.co.jp",
@@ -17,33 +19,35 @@ JAPAN_FINANCE_DOMAINS = [
 def build_llm() -> LLM:
     """Build an Ollama chat LLM via LiteLLM with settings tuned for gemma4 tool calling.
 
-    ``ollama_chat/`` uses ``/api/chat``. gemma4 uses thinking tokens: if the
-    generation budget is exhausted during thinking, ``message.content`` can be
-    empty while ``thinking`` is filled; CrewAI/LiteLLM then aborts with
-    ``Invalid response from LLM call``. Keep thinking enabled for gemma4
-    (``think=False`` discards thought tokens and often returns empty content)
-    and give enough ``max_tokens`` / ``num_predict`` for both thinking and the
-    visible answer or tool calls.
+    ``ollama_chat/`` uses ``/api/chat``. gemma4 often puts the reply in
+    ``thinking`` and leaves ``message.content`` empty. ``OllamaCrewLLM``
+    copies that thinking into content when there are no tool calls, which
+    is what CrewAI requires. Keep thinking enabled for gemma4
+    (``think=False`` discards thought tokens and often returns empty content).
     """
     settings = get_settings()
+    max_tokens = generation_token_budget(
+        settings.ollama_num_ctx, settings.ollama_max_tokens
+    )
     additional_params: dict[str, object] = {
         "num_ctx": settings.ollama_num_ctx,
         # Ollama generation length; keep in sync with LiteLLM max_tokens.
-        "num_predict": settings.ollama_max_tokens,
+        "num_predict": max_tokens,
     }
     if settings.ollama_disable_thinking:
         # Prefer leaving this unset/false for gemma4 — think=False can discard
         # thought tokens and still leave content empty.
         additional_params["think"] = False
 
-    llm = LLM(
+    llm = OllamaCrewLLM(
         model=f"ollama_chat/{settings.ollama_model}",
         base_url=settings.ollama_base_url,
         provider="litellm",
         temperature=0.3,
         timeout=settings.ollama_timeout,
-        max_tokens=settings.ollama_max_tokens,
+        max_tokens=max_tokens,
         additional_params=additional_params,
+        stream=False,
     )
     context_size = int(settings.ollama_num_ctx * 0.85)
     llm.supports_function_calling = lambda: True  # type: ignore[method-assign]
@@ -60,8 +64,40 @@ def build_search_tool() -> TavilySearchTool:
     )
 
 
+class TavilyExtractUrlsSchema(BaseModel):
+    urls: str = Field(
+        ...,
+        description=(
+            "Comma-separated http(s) URLs to extract "
+            "(IR, earnings, kabutan, Yahoo Finance)."
+        ),
+    )
+
+
+class SimpleTavilyExtractorTool(TavilyExtractorTool):
+    """Extractor with a string-only schema. Union types confuse gemma4 tool calls."""
+
+    name: str = "tavily_extract"
+    description: str = (
+        "Extract page text from IR / earnings / kabutan / Yahoo Finance URLs. "
+        "Pass one or more comma-separated URLs."
+    )
+    args_schema: type[BaseModel] = TavilyExtractUrlsSchema
+
+    def _run(self, urls: list[str] | str) -> str:
+        if isinstance(urls, str):
+            parsed = [
+                part.strip()
+                for part in urls.replace("\n", ",").split(",")
+                if part.strip()
+            ]
+        else:
+            parsed = list(urls)
+        return super()._run(parsed)
+
+
 def build_extractor_tool() -> TavilyExtractorTool:
-    return TavilyExtractorTool(
+    return SimpleTavilyExtractorTool(
         extract_depth="advanced",
         timeout=90,
     )
@@ -87,7 +123,11 @@ def create_researcher_agent(llm: LLM, search_tool: TavilySearchTool) -> Agent:
     )
 
 
-def create_analyst_agent(llm: LLM, extractor_tool: TavilyExtractorTool) -> Agent:
+def create_analyst_agent(
+    llm: LLM,
+    search_tool: TavilySearchTool,
+    extractor_tool: TavilyExtractorTool,
+) -> Agent:
     return Agent(
         role="財務アナリスト",
         goal=(
@@ -97,8 +137,9 @@ def create_analyst_agent(llm: LLM, extractor_tool: TavilyExtractorTool) -> Agent
         backstory=(
             "決算分析とバリュエーションに精通したCFA。"
             "低PER業種の同業比較や反動増の見極めを得意とする。"
+            "最終回答の前に必ず検索またはページ抽出ツールで一次情報を確認する。"
         ),
-        tools=[extractor_tool],
+        tools=[search_tool, extractor_tool],
         llm=llm,
         verbose=True,
         max_iter=10,

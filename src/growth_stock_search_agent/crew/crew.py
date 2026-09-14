@@ -49,11 +49,12 @@ def run_research_crew(research_prompt: str, retry_on_parse_error: bool = True) -
                 continue
             raise ValueError(
                 "Ollama から空の応答が返されました。"
-                " gemma4 等の thinking モデルでは生成予算（OLLAMA_MAX_TOKENS /"
-                " num_predict）が thinking 中に尽きると content が空になります。"
-                " OLLAMA_DISABLE_THINKING=false のまま OLLAMA_MAX_TOKENS を上げてください。"
+                " gemma4 は content を空のまま thinking だけ返すことがあります。"
+                " OLLAMA_DISABLE_THINKING=false のまま、OLLAMA_MAX_TOKENS を"
+                " OLLAMA_NUM_CTX より小さくしてください。"
                 f" (model={settings.ollama_model},"
                 f" max_tokens={settings.ollama_max_tokens},"
+                f" num_ctx={settings.ollama_num_ctx},"
                 f" attempt={attempt + 1}/{attempts})"
             ) from exc
 
