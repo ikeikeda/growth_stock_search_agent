@@ -87,6 +87,8 @@ def create_analysis_task(analyst, research_task: Task) -> Task:
     return Task(
         description=(
             "Researcherが収集した候補銘柄について、一次情報を抽出・検証してください。\n"
+            "最初の応答では長文の最終分析を書かず、まず検索またはページ抽出ツールを使ってください。\n"
+            "各候補の株探またはYahooファイナンス、可能ならIR・決算短信をツールで確認すること。\n"
             "・PER15倍未満（低PER業種は同業比較）\n"
             "・売上・営業利益YoY10%以上（20%以上優先）\n"
             "・赤字・希薄化・反動増は除外\n"
@@ -153,7 +155,7 @@ def build_tasks(research_prompt: str):
     extractor_tool = build_extractor_tool()
 
     researcher = create_researcher_agent(llm, search_tool)
-    analyst = create_analyst_agent(llm, extractor_tool)
+    analyst = create_analyst_agent(llm, search_tool, extractor_tool)
     ranker = create_ranker_agent(llm)
     evaluator = create_evaluator_agent(llm, search_tool)
 
