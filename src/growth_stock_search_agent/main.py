@@ -227,11 +227,15 @@ def run_research(argv: list[str] | None = None) -> int:
     prompt = format_run_context(load_research_prompt(use_base=args.use_base))
 
     print("リサーチを開始します...")
-    report = run_research_crew(prompt)
+    try:
+        report = run_research_crew(prompt)
+    except ValueError as exc:
+        print(f"リサーチ結果のJSONパースに失敗したため Spreadsheet へは書き込みません: {exc}")
+        return 1
     log_path = _save_evaluation_log(report)
     print(f"評価ログを保存しました: {log_path}")
     if report.evaluation.rejected_codes:
-        print("銘柄身元チェックで除外:")
+        print("品質ゲートで除外:")
         for evaluation in report.evaluation.stock_evaluations:
             if not evaluation.passes_criteria and evaluation.issues:
                 print(f"  {evaluation.code}: {'; '.join(evaluation.issues)}")
@@ -244,6 +248,14 @@ def run_research(argv: list[str] | None = None) -> int:
             f"(threshold={settings.eval_quality_threshold})"
         )
         return 0
+
+    if not report.candidates:
+        print(
+            "合格銘柄が0件のため Spreadsheet に追記しませんでした。"
+            f" rejected={report.evaluation.rejected_codes or []},"
+            f" score={report.evaluation.report_quality_score:.2f}"
+        )
+        return 2
 
     if (
         report.evaluation.report_quality_score < settings.eval_quality_threshold

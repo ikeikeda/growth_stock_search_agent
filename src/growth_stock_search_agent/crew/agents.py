@@ -16,7 +16,7 @@ JAPAN_FINANCE_DOMAINS = [
 ]
 
 
-def build_llm() -> LLM:
+def build_llm(*, json_mode: bool = False) -> LLM:
     """Build an Ollama chat LLM via LiteLLM with settings tuned for gemma4 tool calling.
 
     ``ollama_chat/`` uses ``/api/chat``. gemma4 often puts the reply in
@@ -24,6 +24,9 @@ def build_llm() -> LLM:
     copies that thinking into content when there are no tool calls, which
     is what CrewAI requires. Keep thinking enabled for gemma4
     (``think=False`` discards thought tokens and often returns empty content).
+
+    ``json_mode`` sets Ollama ``format=json`` so Ranker/Evaluator emit an object
+    instead of looping in thinking text. Do not combine with tools.
     """
     settings = get_settings()
     max_tokens = generation_token_budget(
@@ -34,6 +37,8 @@ def build_llm() -> LLM:
         # Ollama generation length; keep in sync with LiteLLM max_tokens.
         "num_predict": max_tokens,
     }
+    if json_mode:
+        additional_params["format"] = "json"
     if settings.ollama_disable_thinking:
         # Prefer leaving this unset/false for gemma4 — think=False can discard
         # thought tokens and still leave content empty.
@@ -157,29 +162,31 @@ def create_ranker_agent(llm: LLM) -> Agent:
         backstory=(
             "機関投資家向けレポートを執筆するストラテジスト。"
             "構造化されたJSON出力を正確に作成する。"
+            "前置きや思考の再掲はせず、JSONオブジェクトのみを返す。"
         ),
         llm=llm,
         verbose=True,
-        max_iter=8,
+        max_iter=6,
         respect_context_window=True,
     )
 
 
-def create_evaluator_agent(llm: LLM, search_tool: TavilySearchTool) -> Agent:
+def create_evaluator_agent(llm: LLM) -> Agent:
     return Agent(
         role="リサーチ品質監査者",
         goal=(
             "Rankerの選定結果が「市場でまだ注目されていない割安成長株」"
-            "という本来の目的に合致しているか、ルーブリックに沿って銘柄ごとに判定する"
+            "という本来の目的に合致しているか、ルーブリックに沿って銘柄ごとに判定し、"
+            "有効なJSONオブジェクト1つだけを返す"
         ),
         backstory=(
             "独立した監査役として、リサーチ結果の品質と目的適合性を"
             "厳格かつ客観的に評価する専門家。Rankerの結論を鵜呑みにしない。"
             "創作銘柄や社名とコードの不一致を見逃さない。"
+            "同じ確認を繰り返さず、判定が終わったら直ちにJSONのみを出力する。"
         ),
-        tools=[search_tool],
         llm=llm,
         verbose=True,
-        max_iter=10,
+        max_iter=4,
         respect_context_window=True,
     )
