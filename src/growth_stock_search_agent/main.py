@@ -316,6 +316,25 @@ def run_research(argv: list[str] | None = None) -> int:
         recovered_from_ranker = RANKER_RECOVERY_NOTE in (
             report.evaluation.purpose_alignment_summary
             or report.evaluation.recommendations
+    try:
+        report = run_research_crew(prompt)
+    except ValueError as exc:
+        print(f"リサーチ結果のJSONパースに失敗したため Spreadsheet へは書き込みません: {exc}")
+        return 1
+    log_path = _save_evaluation_log(report)
+    print(f"評価ログを保存しました: {log_path}")
+    if report.evaluation.rejected_codes:
+        print("品質ゲートで除外:")
+        for evaluation in report.evaluation.stock_evaluations:
+            if not evaluation.passes_criteria and evaluation.issues:
+                print(f"  {evaluation.code}: {'; '.join(evaluation.issues)}")
+
+    output = json.dumps(report.model_dump(), ensure_ascii=False, indent=2)
+    if args.dry_run:
+        print(output)
+        print(
+            f"\nreport_quality_score={report.evaluation.report_quality_score:.2f} "
+            f"(threshold={settings.eval_quality_threshold})"
         )
         if (
             not recovered_from_ranker
@@ -352,6 +371,23 @@ def run_research(argv: list[str] | None = None) -> int:
         summary.headline = "後処理中にエラーが発生し、結果を確定できませんでした"
         summary.diagnosis = (
             f"{summary.diagnosis}\n後処理エラー: {type(exc).__name__}: {exc}"
+    if not report.candidates:
+        print(
+            "合格銘柄が0件のため Spreadsheet に追記しませんでした。"
+            f" rejected={report.evaluation.rejected_codes or []},"
+            f" score={report.evaluation.report_quality_score:.2f}"
+        )
+        return 2
+
+    if (
+        report.evaluation.report_quality_score < settings.eval_quality_threshold
+        and not args.force_write
+    ):
+        print(
+            "警告: report_quality_score が閾値未満のため Sheets 書き込みをスキップしました。"
+            f" score={report.evaluation.report_quality_score:.2f}, "
+            f"threshold={settings.eval_quality_threshold}. "
+            "強制書き込みは --force-write を使用してください。"
         )
         summary.error_type = type(exc).__name__
         summary.error_message = str(exc)

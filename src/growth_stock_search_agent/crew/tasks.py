@@ -121,7 +121,7 @@ def create_ranking_task(ranker, analysis_task: Task) -> Task:
             "name は株探/Yahooで確認した正式社名のみ（4桁コードを銘柄名に入れない）。"
             "code は実在する4桁コードで、同一コードを複数行に使わない。"
             "business_description に事業内容を1〜2文で必ず入れること。\n"
-            "出力は必ず以下のJSONスキーマに従った有効なJSONのみとしてください。\n"
+            "前置き・説明・思考過程は書かない。出力はJSONオブジェクト1つのみ。\n"
             f"{RANKER_JSON_SCHEMA}"
         ),
         expected_output="有効なJSON形式のRankerOutput（candidates + top3_comparison）",
@@ -139,10 +139,12 @@ def create_evaluation_task(evaluator, ranking_task: Task) -> Task:
             "ルーブリックに沿って独立して評価してください。\n"
             "・passes_criteria=false の銘柄は candidates から除外\n"
             "・社名とコードが実在上場企業として一致しない場合は不合格\n"
-            "・疑義がある数値はWeb検索で再確認\n"
+            "・各銘柄は1回だけ判定し、同じ確認を繰り返さない\n"
             "・report_quality_score は合格銘柄の割合とスコア平均から算出\n"
             "思考過程、英語の監査メモ、チャネルタグは出力しないこと。"
             "有効なJSONオブジェクトだけを返し、先頭文字は { とすること。\n"
+            "・合格が0件でも candidates を空配列にしたJSONを必ず返す\n"
+            "前置き・箇条書き・思考の再掲は禁止。最終出力はJSONオブジェクト1つのみ。\n"
             f"{EVALUATOR_JSON_SCHEMA}"
         ),
         expected_output="有効なJSON形式のResearchReport（evaluation付き、合格銘柄のみ）",
@@ -159,13 +161,14 @@ def build_tasks(research_prompt: str, identity_lessons: str = ""):
     )
 
     llm = build_llm()
+    json_llm = build_llm(json_mode=True)
     search_tool = build_search_tool()
     extractor_tool = build_extractor_tool()
 
     researcher = create_researcher_agent(llm, search_tool)
     analyst = create_analyst_agent(llm, search_tool, extractor_tool)
-    ranker = create_ranker_agent(llm)
-    evaluator = create_evaluator_agent(llm, search_tool)
+    ranker = create_ranker_agent(json_llm)
+    evaluator = create_evaluator_agent(json_llm)
 
     research_task = create_research_task(researcher, research_prompt)
     analysis_task = create_analysis_task(

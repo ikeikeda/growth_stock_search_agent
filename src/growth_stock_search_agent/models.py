@@ -179,6 +179,101 @@ def extract_json_payload(text: str) -> dict:
     if last_error is not None:
         raise last_error
     raise ValueError("No JSON object found in output")
+_CHANNEL_TOKEN_RE = re.compile(r"<\|?/?(?:channel|start|end)[^>]*>", re.IGNORECASE)
+_NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
+
+
+def _strip_llm_noise(text: str) -> str:
+    """Remove chat-template tokens such as ``<channel|>`` from model output."""
+    return _CHANNEL_TOKEN_RE.sub("", text).strip()
+
+
+def _iter_balanced_objects(text: str) -> list[str]:
+    """Return balanced ``{...}`` slices, respecting JSON strings."""
+    objects: list[str] = []
+    i = 0
+    length = len(text)
+    while i < length:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        for j in range(i, length):
+            ch = text[j]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    objects.append(text[i : j + 1])
+                    i = j
+                    break
+        else:
+            break
+        i += 1
+    return objects
+
+
+def _json_object_score(payload: dict) -> int:
+    score = 0
+    if "candidates" in payload:
+        score += 2
+    if "evaluation" in payload:
+        score += 3
+    if "top3_comparison" in payload:
+        score += 1
+    return score
+
+
+def extract_json_payload(text: str) -> dict:
+    """Extract the most report-like JSON object from raw LLM output."""
+    text = _strip_llm_noise(text)
+    if not text:
+        raise ValueError("Empty output")
+
+    decoded: list[dict] = []
+    for raw in _iter_balanced_objects(text):
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            decoded.append(payload)
+
+    if not decoded:
+        raise ValueError("No JSON object found in output")
+
+    best_index, best_payload = max(
+        enumerate(decoded),
+        key=lambda item: (_json_object_score(item[1]), item[0]),
+    )
+    del best_index
+    return best_payload
+
+
+def parse_first_number(text: str) -> float | None:
+    """Parse the first numeric token from an LLM metric string."""
+    cleaned = (text or "").replace(",", "").replace("，", "").replace("％", "%")
+    match = _NUMBER_RE.search(cleaned)
+    if not match:
+        return None
+    try:
+        return float(match.group())
+    except ValueError:
+        return None
 
 
 def parse_research_report(raw_output: str) -> ResearchReport:
@@ -246,6 +341,9 @@ def resolve_crew_report(
             except (ValueError, json.JSONDecodeError):
                 continue
         raise original
+def parse_ranker_output(raw_output: str) -> RankerOutput:
+    payload = extract_json_payload(raw_output)
+    return RankerOutput.model_validate(payload)
 
 
 def stamp_run_date(report: ResearchReport, run_date: str | None = None) -> ResearchReport:

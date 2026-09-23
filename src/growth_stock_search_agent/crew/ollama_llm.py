@@ -123,6 +123,25 @@ def promote_reasoning_to_content(response: Any, *, require_json: bool = False) -
             "Ollama returned empty content; using reasoning_content (%s chars)",
             len(visible),
         )
+        from growth_stock_search_agent.models import extract_json_payload
+        import json as json_lib
+
+        visible = reasoning
+        try:
+            payload = extract_json_payload(reasoning)
+            visible = json_lib.dumps(payload, ensure_ascii=False)
+            logger.warning(
+                "Ollama returned empty content; extracted JSON from reasoning_content (%s chars -> %s chars)",
+                len(reasoning),
+                len(visible),
+            )
+        except Exception:
+            logger.warning(
+                "Ollama returned empty content; using reasoning_content (%s chars)",
+                len(reasoning),
+            )
+
+        message.content = visible
         return True
     except Exception:
         logger.debug("Could not promote reasoning_content", exc_info=True)
