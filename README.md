@@ -9,6 +9,7 @@
 - **Tavily** Web 検索・一次情報抽出
 - **Google Spreadsheet** 新規銘柄のみ行追加
 - **DSPy** プロンプト最適化（文字数削減 + 品質維持）
+- **フィードバックループ** 合格銘柄 0 件のとき失敗原因を記録し、次回リサーチへ教訓を自動注入
 
 ## 前提条件
 
@@ -59,6 +60,15 @@ uv run research --force-write
 # 最適化前プロンプトで実行
 uv run research --use-base
 
+# 失敗時の教訓更新・注入をスキップ
+uv run research --no-feedback
+
+# 蓄積した失敗件数と現行の教訓を表示
+uv run inspect-feedback
+
+# ユニットテスト
+uv run pytest
+
 # DSPy プロンプト最適化（週1回程度推奨）
 uv run optimize-prompt
 ```
@@ -77,6 +87,7 @@ src/growth_stock_search_agent/
 ├── config.py            # 設定・ヘルスチェック
 ├── models.py            # Pydantic スキーマ
 ├── crew/                # CrewAI エージェント
+├── feedback/            # 未検出時の次回向け教訓
 ├── output/              # Google Sheets 書き込み
 ├── prompts/             # プロンプト管理
 └── dspy_opt/            # DSPy 最適化
@@ -95,8 +106,13 @@ src/growth_stock_search_agent/
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | サービスアカウント JSON パス |
 | `GOOGLE_SHEETS_WORKSHEET` | ワークシート名 |
 | `EVAL_QUALITY_THRESHOLD` | 書き込み品質閾値（デフォルト: 0.6） |
+| `FEEDBACK_ENABLED` | 未検出時の教訓更新と次回注入（デフォルト: `true`） |
+| `FEEDBACK_UNKNOWN_CODE_THRESHOLD` | 未確認コードを禁止する連続失敗回数（デフォルト: 2） |
+| `FEEDBACK_LESSONS_MAX_CHARS` | プロンプトへ注入する教訓の上限文字数（デフォルト: 1500） |
 
 ## 出力
 
 - **Spreadsheet**: Pass 判定かつ未登録の銘柄のみ新規行追加
 - **logs/evaluation_*.json**: 評価結果・不合格銘柄の監査ログ
+- **logs/feedback/failures.jsonl**: 合格 0 件実行の分類ログ
+- **logs/feedback/lessons.json**: 次回リサーチへ注入する教訓

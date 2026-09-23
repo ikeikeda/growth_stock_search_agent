@@ -20,7 +20,14 @@ research = "growth_stock_search_agent.main:run_research"
 test-sheets = "growth_stock_search_agent.main:run_test_sheets"
 optimize-prompt = "growth_stock_search_agent.dspy_opt.optimize:main"
 check = "growth_stock_search_agent.main:run_check"
+inspect-feedback = "growth_stock_search_agent.feedback.inspect:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
