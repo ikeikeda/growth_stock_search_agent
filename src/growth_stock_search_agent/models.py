@@ -140,6 +140,45 @@ class ResearchReport(BaseModel):
     evaluation: EvaluationReport
 
 
+RANKER_RECOVERY_NOTE = (
+    "Evaluatorの最終出力から ResearchReport の JSON を取り出せなかったため、"
+    "RankerのJSONを採用しました。"
+    "ルーブリック評価は未実施で、合否は上場身元チェックのみです。"
+    "評価スコアは 0 のまま、身元を確認できた銘柄だけを書き込みます。"
+)
+EVALUATOR_SKIPPED_ISSUE = "EvaluatorのJSONが無く、ルーブリック評価は未実施"
+
+
+def extract_json_payload(text: str) -> dict:
+    """Extract the first valid JSON object from raw LLM output.
+
+    Nested objects inside ```json fences are decoded from the opening brace.
+    A non-greedy fence match would stop at the first ``}`` and reject real reports.
+    """
+    text = text.strip()
+    if not text:
+        raise ValueError("Empty output")
+
+    decoder = json.JSONDecoder()
+    last_error: json.JSONDecodeError | None = None
+    start = 0
+    while True:
+        index = text.find("{", start)
+        if index == -1:
+            break
+        try:
+            payload, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            start = index + 1
+            continue
+        if isinstance(payload, dict):
+            return payload
+        start = index + 1
+
+    if last_error is not None:
+        raise last_error
+    raise ValueError("No JSON object found in output")
 _CHANNEL_TOKEN_RE = re.compile(r"<\|?/?(?:channel|start|end)[^>]*>", re.IGNORECASE)
 _NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 
@@ -242,6 +281,66 @@ def parse_research_report(raw_output: str) -> ResearchReport:
     return ResearchReport.model_validate(payload)
 
 
+def research_report_from_ranker_json(raw_output: str) -> ResearchReport:
+    """Build a report from Ranker JSON when Evaluator did not return one.
+
+    Scores stay at 0 so downstream identity checks decide which names remain.
+    """
+    ranker = RankerOutput.model_validate(extract_json_payload(raw_output))
+    evaluations = [
+        StockEvaluation(
+            code=candidate.code,
+            passes_criteria=True,
+            growth_score=0.0,
+            valuation_score=0.0,
+            unnoticed_score=0.0,
+            exclusion_check_passed=True,
+            data_freshness_ok=False,
+            issues=[EVALUATOR_SKIPPED_ISSUE],
+            overall_score=0.0,
+        )
+        for candidate in ranker.candidates
+    ]
+    return ResearchReport(
+        run_date=ranker.run_date,
+        candidates=list(ranker.candidates),
+        top3_comparison=ranker.top3_comparison,
+        evaluation=EvaluationReport(
+            stock_evaluations=evaluations,
+            report_quality_score=0.0,
+            purpose_alignment_summary=RANKER_RECOVERY_NOTE,
+            rejected_codes=[],
+            recommendations=RANKER_RECOVERY_NOTE,
+        ),
+    )
+
+
+def resolve_crew_report(
+    final_raw: str,
+    task_raws: list[str],
+    *,
+    ranker_index: int = 2,
+) -> tuple[ResearchReport, str]:
+    """Parse the final task, or the Ranker task when that JSON is missing.
+
+    Returns the report and a recovery note. The note is empty when the final
+    task already contained a valid ResearchReport.
+    """
+    try:
+        return parse_research_report(final_raw), ""
+    except (ValueError, json.JSONDecodeError) as original:
+        ordered = list(task_raws)
+        if 0 <= ranker_index < len(ordered):
+            preferred = ordered.pop(ranker_index)
+            ordered.insert(0, preferred)
+        for raw in ordered:
+            if not (raw or "").strip():
+                continue
+            try:
+                return research_report_from_ranker_json(raw), RANKER_RECOVERY_NOTE
+            except (ValueError, json.JSONDecodeError):
+                continue
+        raise original
 def parse_ranker_output(raw_output: str) -> RankerOutput:
     payload = extract_json_payload(raw_output)
     return RankerOutput.model_validate(payload)
@@ -251,9 +350,17 @@ def stamp_run_date(report: ResearchReport, run_date: str | None = None) -> Resea
     return report.model_copy(update={"run_date": run_date or now_run_date()})
 
 
-def format_run_context(research_prompt: str, run_date: str | None = None) -> str:
-    """Append the actual run timestamp and identity rules to the research prompt."""
+def format_run_context(
+    research_prompt: str,
+    run_date: str | None = None,
+    lessons_text: str = "",
+) -> str:
+    """Append the actual run timestamp, identity rules, and optional lessons."""
     stamped = run_date or now_run_date()
+    lessons_block = ""
+    cleaned_lessons = (lessons_text or "").strip()
+    if cleaned_lessons:
+        lessons_block = f"\n{cleaned_lessons}\n"
     return (
         f"{research_prompt}\n\n"
         f"【実行日時】 {stamped}\n"
@@ -261,4 +368,5 @@ def format_run_context(research_prompt: str, run_date: str | None = None) -> str
         "【銘柄の厳守】 実在する日本の上場企業のみを扱う。"
         "銘柄名と4桁コードは株探またはYahooファイナンスで確認した組み合わせだけを使う。"
         "存在しない社名の創作、コードの付け替え、同一コードの重複は禁止。"
+        f"{lessons_block}"
     )

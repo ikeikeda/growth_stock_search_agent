@@ -16,7 +16,15 @@ from dotenv import load_dotenv
 
 from growth_stock_search_agent.config import LOGS_DIR, PROJECT_ROOT, get_settings, run_health_checks
 from growth_stock_search_agent.crew.crew import run_research_crew
+from growth_stock_search_agent.feedback.classifier import should_record_feedback
+from growth_stock_search_agent.feedback.loop import record_and_update
+from growth_stock_search_agent.feedback.store import (
+    format_identity_lessons,
+    format_research_lessons,
+    load_lessons,
+)
 from growth_stock_search_agent.models import (
+    RANKER_RECOVERY_NOTE,
     EvaluationReport,
     ResearchReport,
     StockCandidate,
@@ -26,6 +34,12 @@ from growth_stock_search_agent.models import (
 )
 from growth_stock_search_agent.output.sheets_writer import append_new_candidates
 from growth_stock_search_agent.prompts.loader import load_research_prompt
+from growth_stock_search_agent.run_summary import (
+    RunStatus,
+    RunSummary,
+    format_run_summary,
+    summary_to_dict,
+)
 
 
 def _save_evaluation_log(report) -> Path:
@@ -37,6 +51,21 @@ def _save_evaluation_log(report) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _save_run_summary(summary: RunSummary) -> Path:
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = LOGS_DIR / f"run_summary_{timestamp}.json"
+    path.write_text(
+        json.dumps(summary_to_dict(summary), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _print_run_summary(summary: RunSummary) -> None:
+    print(format_run_summary(summary), flush=True)
 
 
 def _build_sample_report() -> ResearchReport:
@@ -218,15 +247,75 @@ def run_research(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Sheets書き込みをスキップ")
     parser.add_argument("--force-write", action="store_true", help="品質閾値未満でも書き込み")
     parser.add_argument("--use-base", action="store_true", help="最適化前プロンプトを使用")
+    parser.add_argument(
+        "--no-feedback",
+        action="store_true",
+        help="失敗時の教訓更新と次回向け注入をスキップ",
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
     if settings.tavily_api_key:
         os.environ["TAVILY_API_KEY"] = settings.tavily_api_key
 
-    prompt = format_run_context(load_research_prompt(use_base=args.use_base))
+    lessons_text = ""
+    identity_lessons = ""
+    feedback_on = settings.feedback_enabled and not args.no_feedback
+    if feedback_on:
+        lessons = load_lessons()
+        lessons_text = format_research_lessons(lessons, settings=settings)
+        identity_lessons = format_identity_lessons(lessons)
+
+    prompt = format_run_context(
+        load_research_prompt(use_base=args.use_base),
+        lessons_text=lessons_text,
+    )
 
     print("リサーチを開始します...")
+    crew_result = run_research_crew(prompt, identity_lessons=identity_lessons)
+    summary = crew_result.summary
+    try:
+        report = crew_result.report
+        if report is None:
+            return 1
+
+        log_path = _save_evaluation_log(report)
+        print(f"評価ログを保存しました: {log_path}")
+        if summary.log_path:
+            summary.log_path = f"{summary.log_path}; {log_path}"
+        else:
+            summary.log_path = str(log_path)
+        if feedback_on and should_record_feedback(report):
+            result = record_and_update(report, settings=settings)
+            counts = (
+                ", ".join(
+                    f"{kind}={count}" for kind, count in result.kind_counts.items()
+                )
+                or "なし"
+            )
+            print("合格銘柄が0件のため、次回向けの教訓を更新しました。")
+            print(f"  分類: {counts}")
+            print(f"  教訓: {result.lessons_path}")
+            summary.feedback_note = f"教訓を更新しました（{counts}）"
+        if report.evaluation.rejected_codes:
+            print("銘柄身元チェックで除外:")
+            for evaluation in report.evaluation.stock_evaluations:
+                if not evaluation.passes_criteria and evaluation.issues:
+                    print(f"  {evaluation.code}: {'; '.join(evaluation.issues)}")
+
+        output = json.dumps(report.model_dump(), ensure_ascii=False, indent=2)
+        if args.dry_run:
+            print(output)
+            print(
+                f"\nreport_quality_score={report.evaluation.report_quality_score:.2f} "
+                f"(threshold={settings.eval_quality_threshold})"
+            )
+            summary.sheets_note = "スキップ（--dry-run）"
+            return 0
+
+        recovered_from_ranker = RANKER_RECOVERY_NOTE in (
+            report.evaluation.purpose_alignment_summary
+            or report.evaluation.recommendations
     try:
         report = run_research_crew(prompt)
     except ValueError as exc:
@@ -247,8 +336,41 @@ def run_research(argv: list[str] | None = None) -> int:
             f"\nreport_quality_score={report.evaluation.report_quality_score:.2f} "
             f"(threshold={settings.eval_quality_threshold})"
         )
-        return 0
+        if (
+            not recovered_from_ranker
+            and report.evaluation.report_quality_score < settings.eval_quality_threshold
+            and not args.force_write
+        ):
+            print(
+                "警告: report_quality_score が閾値未満のため Sheets 書き込みをスキップしました。"
+                f" score={report.evaluation.report_quality_score:.2f}, "
+                f"threshold={settings.eval_quality_threshold}. "
+                "強制書き込みは --force-write を使用してください。"
+            )
+            summary.status = RunStatus.quality_skip
+            summary.headline = (
+                f"品質スコア {report.evaluation.report_quality_score:.2f} が"
+                f"閾値 {settings.eval_quality_threshold} 未満のため未書き込み"
+            )
+            summary.sheets_note = "スキップ（品質閾値未満。強制は --force-write）"
+            return 2
 
+        appended = append_new_candidates(report, verify_identity=False)
+        if appended:
+            print(
+                f"Spreadsheet に {len(appended)} 件の新規銘柄を追記しました: "
+                f"{', '.join(appended)}"
+            )
+            summary.sheets_note = f"{len(appended)} 件追記（{', '.join(appended)}）"
+        else:
+            print("追記対象の新規銘柄はありませんでした。")
+            summary.sheets_note = "追記なし（既存または合格銘柄なし）"
+        return 0
+    except Exception as exc:
+        summary.status = RunStatus.error
+        summary.headline = "後処理中にエラーが発生し、結果を確定できませんでした"
+        summary.diagnosis = (
+            f"{summary.diagnosis}\n後処理エラー: {type(exc).__name__}: {exc}"
     if not report.candidates:
         print(
             "合格銘柄が0件のため Spreadsheet に追記しませんでした。"
@@ -267,15 +389,17 @@ def run_research(argv: list[str] | None = None) -> int:
             f"threshold={settings.eval_quality_threshold}. "
             "強制書き込みは --force-write を使用してください。"
         )
-        return 2
-
-    appended = append_new_candidates(report, verify_identity=False)
-    if appended:
-        print(f"Spreadsheet に {len(appended)} 件の新規銘柄を追記しました: {', '.join(appended)}")
-    else:
-        print("追記対象の新規銘柄はありませんでした。")
-
-    return 0
+        summary.error_type = type(exc).__name__
+        summary.error_message = str(exc)
+        summary.sheets_note = summary.sheets_note or "未書き込み（後処理エラー）"
+        return 1
+    finally:
+        summary_path = _save_run_summary(summary)
+        if not summary.log_path:
+            summary.log_path = str(summary_path)
+        elif str(summary_path) not in summary.log_path:
+            summary.log_path = f"{summary.log_path}; {summary_path}"
+        _print_run_summary(summary)
 
 
 if __name__ == "__main__":

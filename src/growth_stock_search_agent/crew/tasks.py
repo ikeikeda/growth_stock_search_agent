@@ -83,7 +83,13 @@ def create_research_task(researcher, research_prompt: str) -> Task:
     )
 
 
-def create_analysis_task(analyst, research_task: Task) -> Task:
+def create_analysis_task(
+    analyst, research_task: Task, identity_lessons: str = ""
+) -> Task:
+    lessons_block = ""
+    cleaned = (identity_lessons or "").strip()
+    if cleaned:
+        lessons_block = f"\n{cleaned}\n"
     return Task(
         description=(
             "Researcherが収集した候補銘柄について、一次情報を抽出・検証してください。\n"
@@ -95,6 +101,7 @@ def create_analysis_task(analyst, research_task: Task) -> Task:
             "・直近決算と現在株価でPERを再計算\n"
             "条件を満たす銘柄を10〜15銘柄に絞り込み、各銘柄の詳細データを整理してください。\n"
             "社名とコードが一致しない候補、上場確認できないコードは除外してください。"
+            f"{lessons_block}"
         ),
         expected_output=(
             "絞り込み後の候補銘柄リスト（正式社名、コード、事業内容、現在株価、時価総額、"
@@ -134,6 +141,8 @@ def create_evaluation_task(evaluator, ranking_task: Task) -> Task:
             "・社名とコードが実在上場企業として一致しない場合は不合格\n"
             "・各銘柄は1回だけ判定し、同じ確認を繰り返さない\n"
             "・report_quality_score は合格銘柄の割合とスコア平均から算出\n"
+            "思考過程、英語の監査メモ、チャネルタグは出力しないこと。"
+            "有効なJSONオブジェクトだけを返し、先頭文字は { とすること。\n"
             "・合格が0件でも candidates を空配列にしたJSONを必ず返す\n"
             "前置き・箇条書き・思考の再掲は禁止。最終出力はJSONオブジェクト1つのみ。\n"
             f"{EVALUATOR_JSON_SCHEMA}"
@@ -144,7 +153,7 @@ def create_evaluation_task(evaluator, ranking_task: Task) -> Task:
     )
 
 
-def build_tasks(research_prompt: str):
+def build_tasks(research_prompt: str, identity_lessons: str = ""):
     from growth_stock_search_agent.crew.agents import (
         build_extractor_tool,
         build_llm,
@@ -162,7 +171,9 @@ def build_tasks(research_prompt: str):
     evaluator = create_evaluator_agent(json_llm)
 
     research_task = create_research_task(researcher, research_prompt)
-    analysis_task = create_analysis_task(analyst, research_task)
+    analysis_task = create_analysis_task(
+        analyst, research_task, identity_lessons=identity_lessons
+    )
     ranking_task = create_ranking_task(ranker, analysis_task)
     evaluation_task = create_evaluation_task(evaluator, ranking_task)
 

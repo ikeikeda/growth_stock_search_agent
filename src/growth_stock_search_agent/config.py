@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     google_service_account_json: str = "credentials/service_account.json"
     google_sheets_worksheet: str = "research_results"
     eval_quality_threshold: float = 0.6
+    feedback_enabled: bool = True
+    feedback_unknown_code_threshold: int = 2
+    feedback_lessons_max_chars: int = 1500
+    feedback_max_banned_pairs: int = 20
+    feedback_max_unverified_codes: int = 20
+    feedback_max_criteria_notes: int = 10
+    feedback_max_search_hints: int = 10
 
 
 @lru_cache
